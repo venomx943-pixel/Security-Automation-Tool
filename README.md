@@ -1,4 +1,4 @@
-# Web Recon Automation Tool
+# Web Security Automation Tool
 
 A professional, stealthy, and efficient automation tool designed for security researchers to streamline the reconnaissance phase. This script performs static analysis on client-side assets to uncover hidden endpoints and validates their availability while simulating human-like browsing patterns.
 
