@@ -1,0 +1,87 @@
+import requests
+import re
+import random
+import time
+from concurrent.futures import ThreadPoolExecutor
+from bs4 import BeautifulSoup
+
+# Keywords indicating potential vulnerabilities or sensitive information
+SENSITIVE_KEYWORDS = [
+    'admin', 'config', 'debug', 'api', 'dev', 'test', 'backup', 
+    'env', 'secret', 'key', 'password', 'login', 'db', 'root'
+]
+
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15",
+]
+
+def get_headers():
+    return {
+        "User-Agent": random.choice(USER_AGENTS),
+        "Referer": "https://www.google.com/",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    }
+
+def analyze_content(content):
+    """search for a leak of sensitive data in the response text"""
+    patterns = [r'AIza[0-9A-Za-z-_]{35}', r'ey[A-Za-z0-9-_=]+\.ey[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_=]*'] # API keys/JWT
+    for p in patterns:
+        if re.search(p, content):
+            return " [!] POTENTIAL SECRET LEAK FOUND!"
+    return ""
+
+def check_endpoint(base_url, endpoint):
+    """smart scane for paths"""
+    time.sleep(random.uniform(0.3, 1.2)) # Dynamic delay  
+    full_url = f"{base_url.rstrip('/')}{endpoint}"  
+    
+    # Checking for the existence of transactions (Parameters)
+    has_params = "?" in endpoint
+    is_interesting = any(k in endpoint.lower() for k in SENSITIVE_KEYWORDS)
+    
+    try:
+        response = requests.get(full_url, headers=get_headers(), timeout=5, allow_redirects=False)
+        content = response.text
+        
+        # Warning if the path is 200 or contains sensitive operators or words
+        if response.status_code == 200 or is_interesting or has_params:
+            leak_alert = analyze_content(content)
+            return f"[+] URL: {full_url} | Status: {response.status_code} | Size: {len(content)}{leak_alert}"
+    except:
+        pass
+    return None
+
+def extract_and_verify(target_url):
+    print(f"[*] Starting Intelligence Scan on: {target_url}")
+    session = requests.Session()
+    
+    try:
+        response = session.get(target_url, headers=get_headers(), timeout=10)
+        soup = BeautifulSoup(response.text, 'html.parser')
+    except Exception as e:
+        print(f"[!] Error: {e}")
+        return
+
+    # Improved pattern for extracting paths including transactions
+    pattern = re.compile(r'["\'](/[a-zA-Z0-9_\-/=?&]+)["\']')
+    found_endpoints = set()
+
+    for script in soup.find_all('script'):
+        if script.get('src'):
+            try:
+                js_content = session.get(f"{target_url}{script['src']}" if not script['src'].startswith('http') else script['src'], timeout=3).text
+                found_endpoints.update(pattern.findall(js_content))
+            except: continue
+
+    print(f"[*] Analyzing {len(found_endpoints)} endpoints...")
+    
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        results = list(executor.map(lambda p: check_endpoint(target_url, p), found_endpoints))
+        
+    for res in results:
+        if res: print(res)
+
+if __name__ == "__main__":
+    target = "https://" 
+    extract_and_verify(target)
